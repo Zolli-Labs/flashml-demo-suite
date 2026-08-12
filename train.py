@@ -165,8 +165,9 @@ def load_slice() -> tuple[np.ndarray, np.ndarray, list[str]]:
             f"datasets before the sandbox closes, so this means the job "
             f"declared no `datasets:` — or a name other than 'demo'."
         )
-    present = sorted(DATA_DIR.glob("*.npz"))
-    shards = [p for p in present if HOLDOUT_MARKER not in p.name]
+    present = sorted(DATA_DIR.rglob("*.npz"))
+    shards = [p for p in present
+              if HOLDOUT_MARKER not in str(p.relative_to(DATA_DIR))]
     if not shards:
         # Loud on purpose. Reporting a chunk this task did not train would
         # credit coverage for work that never happened, and the round would
@@ -179,7 +180,7 @@ def load_slice() -> tuple[np.ndarray, np.ndarray, list[str]]:
     xs, ys = [], []
     for shard in shards:
         with np.load(shard) as bundle:
-            xs.append(bundle["x"])
+            xs.append(bundle["X"] if "X" in bundle else bundle["x"])
             ys.append(bundle["y"])
     x = np.concatenate(xs).astype(float)
     y = np.concatenate(ys).astype(np.int64)
