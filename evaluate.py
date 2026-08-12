@@ -109,17 +109,18 @@ def load_holdout(data_dir: Path) -> tuple[np.ndarray, np.ndarray, list[str]]:
             f"datasets before the task starts, so this means flashml.yaml "
             f"declares no `datasets:` — or declares a name other than 'demo'."
         )
-    files = sorted(p for p in data_dir.glob("*.npz") if HOLDOUT_MARKER in p.name)
+    files = sorted(p for p in data_dir.rglob("*.npz")
+                   if HOLDOUT_MARKER in str(p.relative_to(data_dir)))
     if not files:
         raise SystemExit(
             f"no file in {data_dir} has {HOLDOUT_MARKER!r} in its name — found "
-            f"{sorted(p.name for p in data_dir.glob('*.npz'))}. This workload "
+            f"{sorted(str(p.relative_to(data_dir)) for p in data_dir.rglob('*.npz'))}. This workload "
             f"scores held-out data and refuses to score training data instead."
         )
     xs, ys = [], []
     for path in files:
         with np.load(path) as bundle:
-            xs.append(bundle["x"])
+            xs.append(bundle["X"] if "X" in bundle else bundle["x"])
             ys.append(bundle["y"])
     x = np.concatenate(xs).astype(float)
     y = np.concatenate(ys).astype(np.int64)
