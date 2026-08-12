@@ -29,8 +29,18 @@ printf '%s' "$FLASHML_NODE_ID" > "$STATE/node-id"
 printf '{"%s": "%s"}' "$API" "$FLASHML_TOKEN" > "$STATE/credentials.json"
 chmod 600 "$STATE/credentials.json"
 
-python3 -m pip install --no-cache-dir --quiet "flashnode==0.4.0"
+# A VENV, not the system python. The rented image installs `cryptography`
+# from Debian packages with no RECORD file, so pip cannot uninstall it to
+# satisfy flashnode's dependency and exits — which, under `set -e`, crash-loops
+# the container every ~17s. An isolated venv never touches the distro's copy.
+# `--system-site-packages` so the image's CUDA-linked torch stays visible.
+VENV=/opt/flashnode-venv
+if [ ! -x "$VENV/bin/flashnode" ]; then
+  python3 -m venv --system-site-packages "$VENV"
+  "$VENV/bin/pip" install --no-cache-dir --quiet --upgrade pip
+  "$VENV/bin/pip" install --no-cache-dir --quiet "flashnode==0.4.0"
+fi
 
-echo "flashnode $(flashnode --help 2>&1 | head -1)"
 echo "node ${FLASHML_NODE_ID} -> ${API}"
-exec flashnode work --runner trusted --coordinator "$API"
+"$VENV/bin/python" -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available())" || true
+exec "$VENV/bin/flashnode" work --runner trusted --coordinator "$API"
