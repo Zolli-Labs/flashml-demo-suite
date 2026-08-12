@@ -1,0 +1,84 @@
+# One GPU task, checkpointed and resumable — the routing story.
+#
+# version 1, not 2: the bump exists only for `mode: federated`, and this is
+# an ordinary independent job. Sweeps and single tasks stay on 1.
+version: 1
+name: demo-gpu-train
+
+# `pytorch-cuda`, and here the image is a decision rather than a detail.
+#
+# It is the only curated image built on a CUDA base, so it is the only one
+# whose torch can see a card — the other three would import torch (or not)
+# and run the whole thing on the CPU while every log line still said
+# "training". It is also the image whose requirements.txt carries
+# `--index-url https://download.pytorch.org/whl/cu124`, which is what an
+# UNSANDBOXED host installs from when it reproduces this environment
+# without running a container. See README.md, "The unsandboxed host".
+#
+# It is several gigabytes and shares no layer with the other three curated
+# images. A host only ever pulls it after being placed a `gpus: N` task, so
+# a CPU-only volunteer never sees it.
+image: pytorch-cuda
+entrypoint: train.py
+
+# THE LINE THIS WORKLOAD EXISTS FOR.
+#
+# `resources.gpus >= 1` on a job with no sweep and no partition is the only
+# way a flashml.yaml can say "this is training". The console classifies it
+# TRAINING rather than COMMAND, and every venue is then asked whether it
+# fits: a machine with no card is refused with a reason naming the missing
+# hardware, before any price is computed. The other four workloads in this
+# suite are all CPU-only and all classify as something else — see
+# ../README.md's table, which says in as many words that a CPU training run
+# has no way to declare itself training.
+#
+# An integer, and non-negative rather than positive: `gpus: 0` is a
+# meaningful statement ("no card needed") and is not this job. `gpus: true`
+# is refused rather than read as one card, and a float is refused rather
+# than rounded.
+resources:
+  gpus: 1
+
+# Passed through verbatim, ahead of anything FlashML appends. Deliberately
+# tiny: this demonstrates where the work is placed and that it survives an
+# interruption, not how fast a card is. See README.md, "Not a benchmark".
+args: ["--epochs", "200", "--lr", "0.5", "--hidden", "256", "--batch-size", "128"]
+
+# The same dataset the other four workloads declare, resolved ONCE at submit
+# time and pinned. `name` becomes the directory the task reads
+# (/work/data/demo/); the shards land one level down as train/*.npz and
+# holdout/eval.npz.
+#
+# `split` is not written here because it is inferred: a non-federated job
+# infers `replica` — every task gets the whole listing, holdout shard
+# included — which is why train.py excludes the holdout by path rather than
+# trusting the slice.
+#
+# We never store your bytes. The control plane reads the manifest and hands
+# each machine a list of URLs; the shards go from the origin straight to the
+# machine that needs them.
+datasets:
+  - name: demo
+    source: https://zolli-flashml-datasets.oss-ap-southeast-1.aliyuncs.com/datasets/mlp-demo/manifest.json
+
+# There is deliberately no `checkpoint:` key, and adding one is refused with
+# an explanation rather than ignored. Checkpointing is unconditional: every
+# compiled job carries it. What decides whether this task is resumable is
+# entirely in train.py — /work/out/ckpt/step-<N>.json out, and
+# /work/inputs/resume.json in.
+
+# There is deliberately no `dependencies:` key either, and that one took
+# checking rather than taste: `pytorch-cuda` is a curated image, so the
+# compiler resolves its requirements.txt as the job's dependency base and an
+# unsandboxed host installs exactly that. Declaring extras on top would also
+# emit `extra_dependencies`, which the coordinator's placement gate reads as
+# "this job needs a host that can install" — routing it AWAY from the GPU
+# container hosts that run it correctly today. README.md records what the
+# base actually resolved to.
+
+# The training itself is seconds. This budget is for everything around it on
+# a machine seeing this job for the first time: on a container host, pulling
+# several gigabytes of CUDA image; on an unsandboxed host, a torch cu124
+# wheel and CUDA runtime libraries. Neither is the model's fault and both
+# are paid once per machine.
+timeout_seconds: 1800
