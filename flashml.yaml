@@ -1,0 +1,45 @@
+# One task, checkpointed and resumable — the fault-tolerance story.
+#
+# version 1, not 2: the bump exists only for `mode: federated`, and this is
+# an ordinary independent job. Sweeps and single tasks stay on 1.
+version: 1
+name: demo-train
+
+# `sklearn` rather than `pytorch-cpu`, and the reason is the demo fleet
+# rather than the model: those machines are arm64 and the curated images are
+# amd64, so every task runs under qemu emulation. numpy ships in `sklearn`,
+# `pytorch-cpu` and `pytorch-cuda` alike; torch does not need emulating here
+# to make the point, so it is not imported. `examples/federated/` is the
+# torch spelling of the same idea.
+image: sklearn
+entrypoint: train.py
+
+# Passed through verbatim, ahead of anything FlashML appends. Deliberately
+# tiny: this suite demonstrates a working loop, not a result.
+args: ["--epochs", "10", "--lr", "0.5", "--hidden", "8", "--batch-size", "128"]
+
+# The data. `name` becomes the directory the task reads (/work/data/demo/);
+# `source` is resolved ONCE at submit time and pinned, so publishing to the
+# bucket mid-run cannot change what this job trains on.
+#
+# `split` is not written here because it is inferred: a non-federated job
+# infers `replica` — every task gets the whole listing. With one task that
+# is the whole dataset, holdout shard included, which is why train.py
+# excludes the holdout by name rather than trusting the slice.
+#
+# We never store your bytes. The control plane reads the manifest and hands
+# each machine a list of URLs; the shards go from the origin straight to the
+# machine that needs them.
+datasets:
+  - name: demo
+    source: https://zolli-flashml-datasets.oss-ap-southeast-1.aliyuncs.com/datasets/mlp-demo/manifest.json
+
+# There is deliberately no `checkpoint:` key, and adding one is refused with
+# an explanation rather than ignored. Checkpointing is unconditional: every
+# compiled job carries it. What decides whether this task is resumable is
+# entirely in train.py — /work/out/ckpt/step-<N>.json out, and
+# /work/inputs/resume.json in.
+
+# Generous: a volunteer's first task also pays for the image pull, and under
+# qemu emulation everything costs several times its native price.
+timeout_seconds: 900
