@@ -116,7 +116,7 @@ def read_npz(paths: list[Path]) -> tuple[np.ndarray, np.ndarray]:
     xs, ys = [], []
     for path in paths:
         with np.load(path) as bundle:
-            xs.append(bundle["x"])
+            xs.append(bundle["X"] if "X" in bundle else bundle["x"])
             ys.append(bundle["y"])
     return np.concatenate(xs).astype(float), np.concatenate(ys).astype(np.int64)
 
@@ -129,9 +129,11 @@ def load_split(data_dir: Path) -> tuple[tuple, tuple, list[str]]:
             f"datasets before the task starts, so this means flashml.yaml "
             f"declares no `datasets:` — or declares a name other than 'demo'."
         )
-    everything = sorted(data_dir.glob("*.npz"))
-    train_files = [p for p in everything if HOLDOUT_MARKER not in p.name]
-    holdout_files = [p for p in everything if HOLDOUT_MARKER in p.name]
+    everything = sorted(data_dir.rglob("*.npz"))
+    train_files = [p for p in everything
+                   if HOLDOUT_MARKER not in str(p.relative_to(data_dir))]
+    holdout_files = [p for p in everything
+                     if HOLDOUT_MARKER in str(p.relative_to(data_dir))]
     if not train_files or not holdout_files:
         raise SystemExit(
             f"{data_dir} does not hold both halves of the split: found "
