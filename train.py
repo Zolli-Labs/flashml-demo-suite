@@ -163,18 +163,19 @@ def load_training_shards(data_dir: Path) -> tuple[np.ndarray, np.ndarray, list[s
             f"datasets before the task starts, so this means flashml.yaml "
             f"declares no `datasets:` — or declares a name other than 'demo'."
         )
-    shards = sorted(p for p in data_dir.glob("*.npz") if HOLDOUT_MARKER not in p.name)
+    shards = sorted(p for p in data_dir.rglob("*.npz")
+                    if HOLDOUT_MARKER not in str(p.relative_to(data_dir)))
     if not shards:
         raise SystemExit(
             f"{data_dir} holds no training shards (found: "
-            f"{sorted(p.name for p in data_dir.glob('*.npz'))}). Every file "
+            f"{sorted(str(p.relative_to(data_dir)) for p in data_dir.rglob('*.npz'))}). Every file "
             f"whose name contains {HOLDOUT_MARKER!r} is reserved for the "
             f"evaluate workload."
         )
     xs, ys = [], []
     for shard in shards:
         with np.load(shard) as bundle:
-            xs.append(bundle["x"])
+            xs.append(bundle["X"] if "X" in bundle else bundle["x"])
             ys.append(bundle["y"])
     x = np.concatenate(xs).astype(float)
     y = np.concatenate(ys).astype(np.int64)
