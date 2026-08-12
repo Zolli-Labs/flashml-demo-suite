@@ -1,0 +1,38 @@
+# Score a trained model against the held-out shard.
+#
+# The one workload here that produces a number instead of a model. The
+# router reads that off the `validators:` line below and labels the job
+# EVALUATION in the console, with the evidence quoted back.
+version: 1
+name: demo-evaluate
+
+image: sklearn
+entrypoint: evaluate.py
+
+# --hidden only matters when there is no model.json to load, in which case
+# this scores the untrained initialisation as a floor. See evaluate.py.
+args: ["--hidden", "8"]
+
+# `split: replica` is inferred, so this single task receives the whole
+# listing and picks the holdout shard out of it by name. The training
+# shards arrive too and are ignored — a few hundred kilobytes, and not
+# worth a `select:` glob that would have to be kept in step with the
+# dataset's filenames.
+datasets:
+  - name: demo
+    source: https://zolli-flashml-datasets.oss-ap-southeast-1.aliyuncs.com/datasets/mlp-demo/manifest.json
+
+# What a valid result is. An attempt whose metrics.json arrives intact but
+# carries no `accuracy` fails and is retried elsewhere. It is also the whole
+# of this job's kind signal: tasks that emit scores rather than weights.
+validators:
+  keys: [accuracy]
+
+# There is deliberately no `reduce:` here. One task's metrics.json IS the
+# answer, and `reduce: {kind: aggregate, metric: accuracy}` over a single
+# task would report a mean of one number. Add it the day this fans out over
+# several holdout shards — it also changes the console's evidence sentence,
+# from "the tasks emit scores rather than weights" to "the job's result is a
+# score combined from its tasks' outputs".
+
+timeout_seconds: 900
