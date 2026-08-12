@@ -1,0 +1,59 @@
+# A hyperparameter search: two axes, six independent trials, one winner.
+#
+# This is the shape a pull fleet of ordinary machines is strictly good at —
+# many short trials that never have to talk to each other. It is also the
+# shape the router has to recognise, because kind decides which venues the
+# work is offered to before price is considered at all.
+version: 1
+name: demo-hpo
+
+# numpy is what this needs, and `sklearn` carries it. See ../train/ for why
+# the suite avoids torch on the demo fleet.
+image: sklearn
+entrypoint: trial.py
+
+# Fixed for every trial. The swept axes are appended by FlashML on top of
+# these — do not name `--lr` or `--hidden` here, or each task would receive
+# the flag twice.
+args: ["--epochs", "8", "--batch-size", "128"]
+
+# Two axes, 3 x 2 = 6 trials. Each key becomes a CLI flag, so trial.py sees
+# `--lr 0.3 --hidden 16`. Keys must be plain identifiers: they are both a
+# flag name and a substitution field.
+#
+# Six is deliberate. The cap is 100 combinations, and a sweep that large on
+# a demo fleet under qemu emulation would take an afternoon to say something
+# these six already say.
+sweep:
+  lr: [0.1, 0.3, 1.0]
+  hidden: [4, 16]
+
+# Every trial gets the whole dataset — `split: replica` is inferred for a
+# non-federated job — and decides for itself which shards are training data
+# and which is the holdout. See trial.py.
+datasets:
+  - name: demo
+    source: https://zolli-flashml-datasets.oss-ap-southeast-1.aliyuncs.com/datasets/mlp-demo/manifest.json
+
+# What a valid result is. A trial whose metrics.json arrives intact and
+# hashes correctly but carries no `accuracy` fails its attempt and is
+# retried elsewhere. Without this, "the file arrived" is the only check
+# there is — and a trial that crashed after writing half its numbers would
+# rank silently at the bottom.
+validators:
+  keys: [accuracy]
+
+# What makes this a SEARCH rather than a fan-out: the trials are being
+# selected between. The console names the winner and shows the full
+# ordering; the classifier quotes this line back as its evidence.
+reduce:
+  kind: rank
+  metric: accuracy
+  maximize: true
+
+# One closed laptop must not discard the other five trials' work. The job
+# then finishes as PARTIAL — a distinct terminal state, deliberately not
+# "succeeded".
+allow_partial: true
+
+timeout_seconds: 900
