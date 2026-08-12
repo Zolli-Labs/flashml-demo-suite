@@ -1,0 +1,59 @@
+# Federated averaging: one model, several machines, a different shard each.
+#
+# version 2, not 1, because `mode: federated` is the thing that changed. A
+# version-1 federated config typed `rounds`, `min_participants` and
+# `shards`; none of the three survives, so the platform refuses them with
+# the migration rather than guessing what you meant.
+version: 2
+name: demo-federated
+
+# numpy only — see ../train/ for why this suite avoids torch on the demo
+# fleet. `examples/federated/` is the torch spelling of the same protocol.
+image: sklearn
+entrypoint: train.py
+
+# FlashML appends --round, --num-shards and --shard on top of these.
+args: ["--epochs", "4", "--lr", "0.5", "--hidden", "8"]
+
+# `federated` asks the platform to average your model across machines every
+# round. It is a contract, not a flag: train.py has to read
+# /work/inputs/weights.json and write /work/out/delta.json for it to mean
+# anything, and preflight refuses the job outright if the entrypoint never
+# mentions them. Without this key, `mode` defaults to `independent` and the
+# tasks would run once, in parallel, exchanging nothing.
+mode: federated
+
+# How much training, in passes over the data. Four, because the point is
+# that the loss moves between rounds, not where it ends up.
+epochs: 4
+
+# Passes between combines. 1.0 — the default, and the only value that works
+# today — is one combine per pass. Round count is derived (epochs /
+# sync_every) and shown in the console; you never type it.
+sync_every: 1.0
+
+# `split: shard` is INFERRED from `mode: federated` — each machine gets a
+# different slice of the listing, and their union is one pass. That is the
+# whole difference from the other three workloads in this suite, which infer
+# `replica` and each get everything.
+#
+# Note the ceiling this puts on the fleet: the pass cannot be cut into more
+# chunks than the dataset has files, so a dataset of nine files is nine
+# machines at most however large the Crew is. The split also balances BYTES
+# rather than file count, so one dominant file can strand machines even when
+# there are as many files as chunks.
+datasets:
+  - name: demo
+    source: https://zolli-flashml-datasets.oss-ap-southeast-1.aliyuncs.com/datasets/mlp-demo/manifest.json
+
+# There is deliberately no shard count and no quorum here. `shards` was a
+# guess about the fleet made before submitting, by the person with the least
+# information about it; the platform now cuts a pass into chunks and hands
+# each machine that shows up as many as it can finish. `min_participants`
+# went with it: a round closes when the chunks that came back COVER
+# `sync_every` of a pass, which is the property a headcount was standing in
+# for and cannot be satisfied by one fast machine reporting first.
+
+# Per-round wall clock. A volunteer's first task also pays for the image
+# pull, and everything on the demo fleet runs under qemu emulation.
+timeout_seconds: 900
